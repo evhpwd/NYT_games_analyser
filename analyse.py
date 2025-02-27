@@ -27,7 +27,6 @@ def get_game_df(df: pd.DataFrame, game_re: str) -> pd.DataFrame:
 def get_results(game: str, df: pd.DataFrame) -> tuple:
     rdf = pd.DataFrame(index=df['sender'].unique())
     rdf.rename_axis('User', inplace=True)
-
     fdf = pd.DataFrame()
     match game:
         case 'Wordle':
@@ -36,8 +35,10 @@ def get_results(game: str, df: pd.DataFrame) -> tuple:
             return get_connections_results(build_connections_df(df), rdf)
         case 'mini1':
             pass
+            #return get_mini_results(build_mini1_df(df), rdf)
         case 'mini2':
             pass
+            #return get_mini_results(build_mini2_df(df), rdf)
 
     return rdf, fdf
 
@@ -119,12 +120,15 @@ def get_wordle_results(df: pd.DataFrame, rdf: pd.DataFrame) -> tuple:
 
         rdf['Average Guess'] = avg_guess
     
+    if rdf.empty:
+        return rdf, pd.DataFrame()
+    
     for col in ['Games Played', '1/6', '2/6', '3/6', '4/6', '5/6', '6/6', 'X/6']:
         rdf[col] = rdf[col].astype(int)
         
     # retrieve all failed wordles and associated message
     fdf = df.loc[df['score'] == 'X']
-    fdf['message'] = fdf['message'].str.replace(r'(?:Wordle [\d,]+ [\dX]/\d\*?)|[\|⬜⬛🟨🟩]', '', regex=True)
+    fdf['message'] = fdf['message'].str.replace(r'(?:' + game_res['Wordle'] + r')|[\|⬜⬛🟨🟩]', '', regex=True)
     fdf = fdf.replace('', pd.NA).dropna()[['timestamp', 'sender', 'message', 'guesses']]
 
     return (rdf, fdf)
@@ -188,13 +192,16 @@ def get_connections_results(df: pd.DataFrame, rdf: pd.DataFrame) -> tuple:
 
         for stat, value in stats.items():
             rdf.loc[sender, stat] = value
+
+    if rdf.empty:
+        return rdf, pd.DataFrame()
     
     for col in ['Games Played', 'Won', 'Lost', 'Yellows', 'Greens', 'Blues', 'Purples']:
         rdf[col] = rdf[col].astype(int)
 
     df['won'] = df['guesses'].apply(lambda x: all(s in x for s in ['🟨🟨🟨🟨','🟩🟩🟩🟩','🟦🟦🟦🟦','🟪🟪🟪🟪']))
     fdf = df.loc[~df['won']]
-    fdf['message'] = fdf['message'].str.replace(r'(?:Connections \|Puzzle #[\d,]+)|[\|🟨🟩🟦🟪]', '', regex=True)
+    fdf['message'] = fdf['message'].str.replace(r'(?:' + game_res['Connections'] + r')|[\|🟨🟩🟦🟪]', '', regex=True)
     fdf = fdf.replace('', pd.NA).dropna()[['timestamp', 'sender', 'message', 'guesses']]
 
     return rdf, fdf
@@ -218,7 +225,7 @@ chatdf = create_chat_df(chat)
 senders = chatdf['sender'].unique()
 
 game_res = {'Wordle'      : r'Wordle [\d,]+ [\dX]/\d\*?',
-            'Connections' : r'Connections \|Puzzle #[\d,]+',
+            'Connections' : r'Connections ?\|Puzzle #[\d,]+',
             'mini1'       : r'I solved the \d+/\d+/\d+ New York Times Mini Crossword in \d+:\d+!',
             'mini2'       : r'https://www.nytimes.com/badges/games/mini.html\?d=\d{4}-\d{2}-\d{2}&t=\d+'}
 game_dfs:     dict = {}
