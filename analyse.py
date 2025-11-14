@@ -24,21 +24,25 @@ def get_game_df(df: pd.DataFrame, game_re: str) -> pd.DataFrame:
 # ----------- Game Functions ---------------------------------------------------
 
 # generate results for a given type of game and dataframe
-def get_results(game: str, df: pd.DataFrame) -> tuple:
-    rdf = pd.DataFrame(index=df['sender'].unique())
+def get_results(game: str, df) -> tuple:
+    rdf = pd.DataFrame()
+    if type(df) == pd.DataFrame:
+        rdf = pd.DataFrame(index=df['sender'].unique())
+    elif type(df) == tuple:
+        rdf = pd.DataFrame(index=pd.concat([df[0],df[1]])['sender'].unique())
     rdf.rename_axis('User', inplace=True)
     fdf = pd.DataFrame()
+
     match game:
         case 'Wordle':
             return get_wordle_results(build_wordle_df(df), rdf)
         case 'Connections':
+            rdf = pd.DataFrame(index=df['sender'].unique())
+            rdf.rename_axis('User', inplace=True)
+            fdf = pd.DataFrame()
             return get_connections_results(build_connections_df(df), rdf)
-        case 'mini1':
-            pass
-            #return get_mini_results(build_mini1_df(df), rdf)
-        case 'mini2':
-            pass
-            #return get_mini_results(build_mini2_df(df), rdf)
+        case 'Mini':
+            return get_mini_results(build_mini_df(df), rdf)
 
     return rdf, fdf
 
@@ -60,7 +64,7 @@ def build_wordle_df(df: pd.DataFrame) -> pd.DataFrame:
     df['game']    = df['message'].str.extract(r'Wordle ([\d,]+) ')
     df['game']    = df['game'].str.replace(',', '').astype(int)
     df['score']   = df['message'].str.extract(r'([\dX])/\d\*?')
-    df['guesses'] = df['message'].str.extract(r'((?:[🟩⬜⬛🟨]+\|?)+)')
+    df['guesses'] = df['message'].str.extract(r'((?:[🟩⬜⬛🟨]{5}\|?)+)')
     return df
 
 # get frequencies of type of square for each guess
@@ -209,7 +213,47 @@ def get_connections_results(df: pd.DataFrame, rdf: pd.DataFrame) -> tuple:
     
 # ----------- Mini Functions ----------------------------------------------------
 
-# TBD
+# build mini games dataframe from both message format dataframes
+def build_mini_df(dfs: tuple) -> pd.DataFrame:
+    return pd.concat([build_mini1_df(dfs[0]), build_mini2_df(dfs[1])])
+
+def build_mini1_df(df: pd.DataFrame) -> pd.DataFrame:
+    df['game'] = df['message'].str.extract(r'I solved the (\d+/\d+/\d+) New York Times Mini Crossword')
+    df['game'] = pd.to_datetime(df['game'], format='%m/%d/%Y').astype(int)//10**9//60//60//24
+    df['time'] = df['message'].str.extract(r'New York Times Mini Crossword in (\d+:\d+)!')
+    df['time'] = df['time'].apply(get_mini1_score)
+    return df
+
+def get_mini1_score(message: str):
+	m, s = message.split(':')
+	return (int(m) * 60) + int(s)
+
+def build_mini2_df(df: pd.DataFrame) -> pd.DataFrame:
+    df['game'] = df['message'].str.extract(r'd=(\d\d\d\d-\d\d-\d\d)&')
+    df['game'] = pd.to_datetime(df['game'], format='%Y-%m-%d').astype(int)//10**9//60//60//24
+    df['time'] = df['message'].str.extract(r't=(\d+)&').astype(int)
+    return df
+
+# calculate mini stats for a dataframe
+def calc_mini_stats(df: pd.DataFrame):
+        stats: dict = {'Games Played'      : len(df),
+                       'Longest Streak'    : str(get_longest_streak(df)) + ' days',
+                       'Average Time (s)'  : df['time'].mean(),
+                       'Shortest Time (s)' : df['time'].min(),
+                       'Longest Time (s)'  : df['time'].max()}
+        return stats
+
+# build dataframe containing stats per person
+def get_mini_results(df: pd.DataFrame, rdf: pd.DataFrame) -> tuple:
+    for sender, sender_df in df.groupby(['sender']):
+        sender = sender[0]
+        stats = calc_mini_stats(sender_df)
+
+        for stat, value in stats.items():
+            rdf.loc[sender, stat] = value
+    
+    print(rdf)
+    return rdf, pd.DataFrame()
 
 # ----------- Entry Point -------------------------------------------------------
 
@@ -235,16 +279,21 @@ failed_games: dict = {}
 for game, regex in game_res.items():
     game_dfs[game] = get_game_df(chatdf, regex)
 
+game_dfs['Mini'] = (game_dfs['mini1'], game_dfs['mini2'])
+game_dfs.pop('mini1')
+game_dfs.pop('mini2')
+
 for game, df in game_dfs.items():
     result_df, fail_df = get_results(game, df)
     result_dfs[game] = result_df
     failed_games[game] = fail_df
 
-# concat mini1 and mini2 into Mini and del mini1/mini2
-
 out_string = ''
 for game, rdf in result_dfs.items():
     out_string += game + ':\n' + rdf.to_csv(encoding='utf8', lineterminator='\n') + '\n'
+
+out_string += 'Epic Fails:\n'
+for game, fdf in failed_games.items():
     out_string += failed_games[game].to_csv(encoding='utf8', lineterminator='\n', index=False) + '\n'
 
 print(out_string)
